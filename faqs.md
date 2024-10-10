@@ -1,108 +1,146 @@
-### **FAQ: Accessing Variables in Azure Pipelines**
+## **Azure Pipelines Variables FAQ: Compile-Time vs. Runtime Variable Access**
 
----
+### 1. **What is the difference between `${{ variables.NAME }}` and `$(NAME)` in Azure Pipelines?**
 
-#### **1. What is the correct way to access a variable in Azure Pipelines?**
+- **`${{ variables.NAME }}`**: This syntax is used for **compile-time** evaluation. Variables referenced with `${{ variables.NAME }}` are evaluated when the pipeline is processed and the YAML is being parsed. Use this syntax for:
+  - Conditional expressions.
+  - Including or excluding stages, jobs, or steps based on variables.
+  - Defining pipeline logic during the initial pipeline setup.
 
-- **Runtime expression**: Use `$(VARIABLE_NAME)` when accessing variables during pipeline execution (runtime).
-- **Template expression**: Use `${{ variables.VARIABLE_NAME }}` when accessing variables during pipeline template processing (compile-time).
+- **`$(NAME)`**: This syntax is used for **runtime** evaluation. Variables referenced with `$(NAME)` are evaluated during the pipeline execution, at the moment the tasks or scripts are run. Use this syntax when:
+  - Passing variables into tasks or scripts.
+  - Referencing variables from the environment or variable groups during the execution.
 
----
+### 2. **How do I access variables from a variable group in Azure Pipelines?**
 
-#### **2. When should I use `$(VARIABLE_NAME)`?**
+If you're pulling a variable (e.g., `READ_PACKAGES_PAT`) from a **variable group**, you should typically use the **runtime expression**:
 
-Use the `$(VARIABLE_NAME)` syntax when you need to access variables that are evaluated **during the execution** of the pipeline, such as passing a value into a script, task, or template parameter. This is the most common case for using variables.
+- **Syntax**: `$(READ_PACKAGES_PAT)`
+  
+This allows the variable to be accessed when the pipeline is running, as variable groups are typically resolved at runtime.
 
-Example:
+**Example**:
 ```yaml
-pool:
-  name: $(agentPool)
+apiCheckoutExtRepo:
+  PAT: $(READ_PACKAGES_PAT)  # Correct syntax for accessing variable from a variable group
 ```
 
----
+### 3. **How do I reference variables from a YAML template in Azure Pipelines?**
 
-#### **3. When should I use `${{ variables.VARIABLE_NAME }}`?**
+When you define variables in a separate YAML template (e.g., `../../variables/_envspecific/global.yaml`), those variables are accessible based on the context:
 
-Use `${{ variables.VARIABLE_NAME }}` when you need to evaluate the variable **at compile-time**. This is often required when making decisions in the pipeline structure itself, such as conditional steps or stages.
+- **Compile-Time (using `${{ variables.NAME }}`)**: If you are referencing the variable in a conditional statement, or to control pipeline structure (such as stages or jobs), use `${{ variables.NAME }}`.
 
-Example:
+- **Runtime (using `$(NAME)`)**: If you are using the variable in a task, script, or any other step that is executed while the pipeline runs, use `$(NAME)`.
+
+**Example (using template variables)**:
+
 ```yaml
-${{ if eq(variables.environment, 'production') }}:
-  pool: production-pool
+# Referencing variables from a template in conditional logic (compile-time)
+stages:
+  - ${{ if eq(variables.environmentName, 'dev') }}:
+    - stage: DeployToDev
+      jobs:
+        - job: Deploy
+          steps:
+            - script: echo "Deploying to $(environmentName)"  # Correct syntax for runtime use
 ```
 
----
+### 4. **How do I access a Personal Access Token (PAT) securely in Azure Pipelines?**
 
-#### **4. How do I reference a variable from a variable group?**
+If you are passing a **Personal Access Token (PAT)**, it is typically stored securely in a **variable group** or a **YAML template**. The correct way to access it depends on whether you're passing it at compile-time or runtime:
 
-You can reference a variable from a **variable group** the same way you reference any runtime variable. Use the `$(VARIABLE_NAME)` syntax to ensure the variable is evaluated at runtime.
+- **Compile-Time**: Rarely used for PAT, but can be referenced via `${{ variables.PAT }}` if needed in the pipeline structure.
+- **Runtime**: This is the recommended method for passing secrets like PAT tokens. Use `$(PAT)`.
 
-Example:
+**Example**:
 ```yaml
+apiCheckoutExtRepo:
+  PAT: $(READ_PACKAGES_PAT)  # Correct runtime syntax for PAT
+```
+
+### 5. **When should I use compile-time vs. runtime variables?**
+
+- **Use Compile-Time (`${{ variables.NAME }}`)** when:
+  - You are controlling the structure of the pipeline (e.g., determining whether a stage or job should run based on the value of a variable).
+  - You need to include or exclude templates or steps based on variables.
+  
+**Example**:
+```yaml
+# Use compile-time variable for conditional stage inclusion
+stages:
+  - ${{ if eq(variables.deployAPI, true) }}:
+    - stage: DeployAPI
+      jobs:
+        - job: Deploy
+```
+
+- **Use Runtime (`$(NAME)`)** when:
+  - You need to pass a variable to a task, script, or command that is executed during the pipeline.
+  - You are dealing with secrets or sensitive values, such as tokens or passwords, pulled from variable groups.
+
+**Example**:
+```yaml
+# Use runtime variable for passing secret values like tokens to a task
 steps:
-- script: echo "The secret value is: $(MY_SECRET)"
+  - script: echo "Using PAT: $(READ_PACKAGES_PAT)"
 ```
 
----
+### 6. **What happens if I mix `${{ variables.NAME }}` and `$(NAME)` incorrectly?**
 
-#### **5. What’s the difference between using `$(VARIABLE_NAME)` and `${{ variables.VARIABLE_NAME }}` in my YAML pipeline?**
+- If you use `$(NAME)` in a place where a compile-time variable is expected, the variable will not resolve correctly during pipeline parsing, and the pipeline might fail or behave unexpectedly.
+- If you use `${{ variables.NAME }}` in a task that runs at runtime, it will fail to retrieve the correct value, because the variable will not be evaluated at the right time.
 
-- **`$(VARIABLE_NAME)`**: This is evaluated at runtime, meaning the variable's value is available when the pipeline runs. Use this for variables that are passed into tasks or scripts.
-- **`${{ variables.VARIABLE_NAME }}`**: This is evaluated at compile-time when the pipeline YAML is processed, which happens before the pipeline execution begins. Use this for conditional logic or defining structures in your pipeline.
+### 7. **Can I use variables defined in YAML templates to control pipeline flow?**
 
----
+Yes! Variables defined in YAML templates can be used to control the pipeline flow, such as including or excluding stages or jobs based on the value of those variables.
 
-#### **6. What happens if I use `$(VARIABLE_NAME)` instead of `${{ variables.VARIABLE_NAME }}` or vice versa?**
-
-- If you mistakenly use `$(VARIABLE_NAME)` in a place where a template expression is expected (such as in conditions), it may not work as expected because it won't be evaluated at the right time.
-- If you use `${{ variables.VARIABLE_NAME }}` in a place meant for runtime expressions, the pipeline might fail because it’s trying to access the variable before it's set.
-
----
-
-#### **7. How do I access a Personal Access Token (PAT) stored in a variable group?**
-
-If you have stored a PAT in a variable group, you should access it using the runtime expression `$(PAT_VARIABLE)` to ensure it’s evaluated during pipeline execution.
-
-Example:
+**Example**:
 ```yaml
-parameters:
-  PAT: $(MY_PAT) # Correct for accessing a PAT from a variable group
+# Template variable controlling whether a stage is included
+stages:
+  - ${{ if eq(variables.environmentName, 'production') }}:
+    - stage: DeployToProduction
+      jobs:
+        - job: Deploy
 ```
 
----
+### 8. **How do I define variables in YAML templates and use them in the main pipeline?**
 
-#### **8. Can I use variables from a variable group in conditions?**
+You can define variables in a template and reference them in your main pipeline YAML file:
 
-Yes, but use the **`${{ variables.VARIABLE_NAME }}`** syntax to evaluate the variable during the template compilation phase, especially if you are making decisions about pipeline structure.
+**Template (`global.yaml`)**:
+```yaml
+variables:
+  environmentName: "dev"
+  apiKey: "12345"
+```
 
-Example:
+**Main Pipeline YAML**:
+```yaml
+- template: ../../variables/_envspecific/global.yaml@self
+
+stages:
+  - stage: Deploy
+    jobs:
+      - job: DeployJob
+        steps:
+          - script: echo "Environment: $(environmentName)"  # Accessing runtime variable
+```
+
+### 9. **What if I need to use both compile-time and runtime variables in the same pipeline?**
+
+You can use both compile-time and runtime variables in the same pipeline, but be careful to apply the correct syntax in the appropriate context.
+
+**Example (mixed usage)**:
 ```yaml
 stages:
-  - ${{ if eq(variables.environment, 'production') }}:
-    - stage: DeployToProd
+  - ${{ if eq(variables.environmentName, 'dev') }}:
+    - stage: DeployToDev
+      jobs:
+        - job: Deploy
+          steps:
+            - script: echo "Environment: $(environmentName)"  # Runtime access
 ```
-
----
-
-#### **9. How do I pass a variable from a variable group into a template?**
-
-Pass the variable using the `$(VARIABLE_NAME)` runtime syntax. For example, if you need to pass a PAT into a template, use:
-
-```yaml
-- template: my-template.yaml
-  parameters:
-    personalAccessToken: $(READ_PACKAGES_PAT)
-```
-
----
-
-#### **10. Why am I getting "Variable not found" errors in my pipeline?**
-
-This can happen if:
-- You are using the wrong syntax (`$(...)` vs `${{ ... }}`).
-- The variable has not been defined in the pipeline, or it is not available at the point of execution.
-- The variable is stored in a variable group, but the group isn’t linked to the pipeline.
-
-Ensure you are using the correct syntax for the context (runtime vs compile-time), and that variable groups are correctly linked.
 
 ---
